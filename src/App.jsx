@@ -631,7 +631,7 @@ function RosterModal({ event, onClose }) {
 
 // ========== 共通スタイル ==========
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 };
-const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color 0.2s", fontFamily: "inherit", background: "white" };
+const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color 0.2s", fontFamily: "inherit", background: "white", color: "#1e1b4b" };
 
 // ========== Toastコンポーネント ==========
 function Toast({ message, type, onClose }) {
