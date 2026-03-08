@@ -1335,7 +1335,7 @@ export default function EventNavi() {
 
   const filteredEvents = events.filter(ev => {
     const roleOk = currentUser?.role !== "participant" || ev.status === "approved";
-    const catOk = filter === "すべて" || ev.category === filter;
+    const catOk = filter === "すべて" || ev.type === filter;
     const searchOk = !searchQ || ev.title.includes(searchQ) || ev.description.includes(searchQ);
     return roleOk && catOk && searchOk;
   });
@@ -1734,11 +1734,14 @@ export default function EventNavi() {
 
         {/* フィルター + 新規投稿 */}
         <div className="filter-bar" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", flex: 1 }}>
-            {CATEGORIES.map(cat => (
-              <button key={cat} onClick={() => setFilter(cat)} style={{ padding: "6px 14px", borderRadius: 20, border: "2px solid", borderColor: filter === cat ? ROLE_THEME[currentUser.role].primary : "#e2e8f0", background: filter === cat ? ROLE_THEME[currentUser.role].light : "white", color: filter === cat ? ROLE_THEME[currentUser.role].primary : "#64748b", cursor: "pointer", fontSize: 12, fontWeight: filter === cat ? 700 : 500, className: "filter-chip" }}>{cat}</button>
-            ))}
-          </div>
+          {currentUser.role === "participant" && (
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap", flex: 1 }}>
+              {[["すべて","すべて"],["event","📅 イベント"],["volunteer","🙋 ボランティア募集"]].map(([val, label]) => (
+                <button key={val} onClick={() => setFilter(val)} className="filter-chip" style={{ padding: "6px 14px", borderRadius: 20, border: "2px solid", borderColor: filter === val ? ROLE_THEME[currentUser.role].primary : "#e2e8f0", background: filter === val ? ROLE_THEME[currentUser.role].light : "white", color: filter === val ? ROLE_THEME[currentUser.role].primary : "#64748b", cursor: "pointer", fontSize: 12, fontWeight: filter === val ? 700 : 500 }}>{label}</button>
+              ))}
+            </div>
+          )}
+          {currentUser.role !== "participant" && <div style={{ flex: 1 }} />}
           {(currentUser.role === "organizer" || currentUser.role === "admin") && (
             <button onClick={() => { setSelectedEvent(null); setModalType("create"); }} style={{ padding: "9px 20px", borderRadius: 13, border: "none", background: ROLE_THEME[currentUser.role].gradient, color: "white", cursor: "pointer", fontWeight: 700, fontSize: 13, boxShadow: `0 4px 15px ${ROLE_THEME[currentUser.role].primary}40` }}>＋ 新規投稿</button>
           )}
