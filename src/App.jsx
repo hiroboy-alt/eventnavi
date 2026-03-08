@@ -976,7 +976,7 @@ function EventCard({ event, currentUser, onOpenApply, onViewDetail, onApprove, o
               {(isApplied || isVolApplied) && (
                 <button onClick={() => onCancelApply(event, currentUser.id)} style={{ padding: "8px 10px", borderRadius: 10, border: "2px solid #fecaca", background: "white", color: "#dc2626", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🗑 キャンセル</button>
               )}
-              <button onClick={() => onFlyer(event)} style={{ padding: "8px 10px", borderRadius: 10, border: "none", background: "#fef3c7", color: "#b45309", cursor: "pointer", fontSize: 11, fontWeight: 700 }} title="申込票を印刷して持参できます">📄 申込票</button>
+              <button onClick={() => onFlyer(event)} style={{ padding: "8px 10px", borderRadius: 10, border: "none", background: "#fef3c7", color: "#b45309", cursor: "pointer", fontSize: 11, fontWeight: 700 }} title="申込票を印刷して持参できます">📄 申込票印刷</button>
             </>
           )}
 
