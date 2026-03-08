@@ -747,7 +747,6 @@ function ApplicationForm({ event, currentUserId, onSubmit, onClose }) {
   const emptyMember = () => ({ grade: "大人", name: "", school: "", schoolYear: "", schoolClass: "", email: "", phone: "" });
   const [count, setCount] = useState(1);
   const [members, setMembers] = useState([emptyMember()]);
-  const [step, setStep] = useState("form"); // "form" | "pin"
 
   const handleCountChange = (n) => {
     const newCount = Math.max(1, Math.min(10, n));
@@ -783,16 +782,7 @@ function ApplicationForm({ event, currentUserId, onSubmit, onClose }) {
     return null;
   };
 
-  // PIN設定ステップ
-  if (step === "pin") {
-    return (
-      <PinSetupStep
-        label="申込"
-        onConfirm={pin => onSubmit({ id: currentUserId, members, date: new Date().toLocaleDateString("ja-JP"), pin })}
-        onBack={() => setStep("form")}
-      />
-    );
-  }
+  // PIN設定削除済み
 
   return (
     <div>
@@ -908,9 +898,9 @@ function ApplicationForm({ event, currentUserId, onSubmit, onClose }) {
         <button onClick={() => {
           const err = validate();
           if (err) { alert(err); return; }
-          setStep("pin");
+          onSubmit({ id: currentUserId, members, date: new Date().toLocaleDateString("ja-JP") });
         }} style={{ flex: 2, padding: "13px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #667eea, #764ba2)", color: "white", cursor: "pointer", fontWeight: 800, fontSize: 15 }}>
-          次へ（PIN設定）→
+          ✅ 申込を確定する
         </button>
       </div>
     </div>
@@ -1203,7 +1193,6 @@ function PinSetupStep({ label, onConfirm, onBack }) {
 
 function EventForm({ event, onSave, onClose }) {
   const [form, setForm] = useState(event || { type: "event", title: "", description: "", date: "", time: "10:00", location: "", capacity: 30, capacityUnlimited: false, image: "🎉", volunteers: 0, volunteerApplicants: [], meetingPlace: "", meetingTime: "09:00", dismissalTime: "17:00", fee: "", organizerName: "", contactPerson: "", contactPhone: "" });
-  const [step, setStep] = useState("form"); // "form" | "pin"
   const emojis = ["🎉", "🌸", "🎆", "📚", "🚶", "🎵", "🍳", "🌿", "🏃", "🎨", "🤝", "🌈"];
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const validate = () => {
