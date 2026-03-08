@@ -970,16 +970,11 @@ function EventCard({ event, currentUser, onOpenApply, onViewDetail, onApprove, o
 
           {currentUser.role === "participant" && event.status === "approved" && (
             <>
-              <button onClick={() => onOpenApply(event, "participant")} disabled={isApplied || isFull} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "none", background: isApplied ? "#dcfce7" : isFull ? "#fee2e2" : "linear-gradient(135deg,#667eea,#764ba2)", color: isApplied ? "#16a34a" : isFull ? "#dc2626" : "white", cursor: isApplied || isFull ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
-                {isApplied ? "✓ 申込済み" : isFull ? "満員" : "参加申込"}
+              <button onClick={() => onOpenApply(event, event.type === "volunteer" ? "volunteer" : "participant")} disabled={(isApplied || isVolApplied) || isFull} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "none", background: (isApplied || isVolApplied) ? "#dcfce7" : isFull ? "#fee2e2" : event.type === "volunteer" ? "linear-gradient(135deg,#f59e0b,#ef4444)" : "linear-gradient(135deg,#667eea,#764ba2)", color: (isApplied || isVolApplied) ? "#16a34a" : isFull ? "#dc2626" : "white", cursor: (isApplied || isVolApplied) || isFull ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
+                {(isApplied || isVolApplied) ? "✓ 申込済み" : isFull ? "満員" : "参加申込"}
               </button>
-              {isApplied && (
+              {(isApplied || isVolApplied) && (
                 <button onClick={() => onCancelApply(event, currentUser.id)} style={{ padding: "8px 10px", borderRadius: 10, border: "2px solid #fecaca", background: "white", color: "#dc2626", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🗑 キャンセル</button>
-              )}
-              {event.type === "volunteer" && (
-                <button onClick={() => onOpenApply(event, "volunteer")} disabled={isVolApplied} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "none", background: isVolApplied ? "#fef9c3" : "linear-gradient(135deg,#f59e0b,#ef4444)", color: isVolApplied ? "#854d0e" : "white", cursor: isVolApplied ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
-                  {isVolApplied ? "✓ 登録済み" : "ボランティア"}
-                </button>
               )}
               <button onClick={() => onFlyer(event)} style={{ padding: "8px 10px", borderRadius: 10, border: "none", background: "#fef3c7", color: "#b45309", cursor: "pointer", fontSize: 11, fontWeight: 700 }} title="申込票を印刷して持参できます">📄 申込票</button>
             </>
@@ -1709,7 +1704,7 @@ export default function EventNavi() {
             <span style={{ fontSize: 17 }}>{currentUser.role === "participant" ? "👤" : currentUser.role === "organizer" ? "🏢" : "⚙️"}</span>
             <div><div className="header-user-name" style={{ fontSize: 12, fontWeight: 700, color: "#1e1b4b" }}>{currentUser.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{currentUser.role === "participant" ? "参加者" : currentUser.role === "organizer" ? "主催者" : "管理者"}</div></div>
           </div>
-          <button onClick={() => setCurrentUser(null)} style={{ padding: "7px 12px", borderRadius: 9, border: `2px solid ${ROLE_THEME[currentUser.role].primary}`, background: "white", color: ROLE_THEME[currentUser.role].primary, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>🏠 ホーム</button>
+          <button onClick={() => setCurrentUser(null)} style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "white", cursor: "pointer", fontSize: 13, fontWeight: 800, boxShadow: "0 4px 12px rgba(30,27,75,0.4)", letterSpacing: 1 }}>🏠 ホーム</button>
         </div>
       </header>
 
