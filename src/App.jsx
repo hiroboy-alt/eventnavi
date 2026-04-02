@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { db } from "./firebase";
 import {
   collection, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, query
@@ -1258,41 +1258,257 @@ function EventForm({ event, onSave, onClose }) {
   );
 }
 
-// ========== サイネージ ==========
-function SignagePage({ events }) {
-  const [idx, setIdx] = useState(0);
-  const approved = events.filter(e => e.status === "approved");
-  useEffect(() => { const t = setInterval(() => setIdx(i => (i + 1) % Math.max(approved.length, 1)), 5000); return () => clearInterval(t); }, [approved.length]);
-  if (!approved.length) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#1e1b4b", color: "white", fontSize: 24 }}>承認済みイベントがありません</div>;
-  const ev = approved[idx];
-  const latestNotice = ev.emergencyNotices?.length > 0 ? ev.emergencyNotices[ev.emergencyNotices.length - 1] : null;
+// ========== サイネージモード（完全版） ==========
+const SIGNAGE_DEFAULTS = { slideDuration: 8, fadeDuration: 1.2, reloadInterval: 5, burnInProtection: true };
+const SIGNAGE_CATEGORY_COLORS = {
+  "地域活動": { bg: "linear-gradient(135deg,#059669,#047857)", accent: "#34d399" },
+  "ボランティア": { bg: "linear-gradient(135deg,#2563eb,#1d4ed8)", accent: "#60a5fa" },
+  "文化・教育": { bg: "linear-gradient(135deg,#7c3aed,#6d28d9)", accent: "#a78bfa" },
+  "スポーツ・健康": { bg: "linear-gradient(135deg,#dc2626,#b91c1c)", accent: "#fca5a5" },
+  "default": { bg: "linear-gradient(135deg,#0284c7,#0369a1)", accent: "#7dd3fc" },
+};
+function getSCColor(cat) { return SIGNAGE_CATEGORY_COLORS[cat] || SIGNAGE_CATEGORY_COLORS["default"]; }
+
+function formatSignageDate(dateStr) {
+  const d = new Date(dateStr); const days = ["日","月","火","水","木","金","土"];
+  return `${d.getMonth()+1}月${d.getDate()}日（${days[d.getDay()]}）`;
+}
+function daysUntil(dateStr) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const target = new Date(dateStr); target.setHours(0,0,0,0);
+  const diff = Math.ceil((target - now) / 86400000);
+  if (diff === 0) return "今日"; if (diff === 1) return "明日"; if (diff < 0) return "終了"; return `あと${diff}日`;
+}
+function deadlineLabel(dateStr) {
+  const d = daysUntil(dateStr);
+  if (d === "終了") return "締切済み"; if (d === "今日") return "本日締切！"; if (d === "明日") return "明日締切！";
+  return `締切 ${formatSignageDate(dateStr)}`;
+}
+function useCurrentTime() {
+  const [t, setT] = useState(new Date());
+  useEffect(() => { const id = setInterval(() => setT(new Date()), 1000); return () => clearInterval(id); }, []);
+  return t;
+}
+function useBurnInOffset(on) {
+  const [o, setO] = useState({ x: 0, y: 0 });
+  useEffect(() => {
+    if (!on) { setO({ x: 0, y: 0 }); return; }
+    const id = setInterval(() => setO({ x: Math.round((Math.random()-0.5)*6), y: Math.round((Math.random()-0.5)*4) }), 60000);
+    return () => clearInterval(id);
+  }, [on]);
+  return o;
+}
+
+function SignageClock({ now }) {
+  const h = String(now.getHours()).padStart(2,"0"), m = String(now.getMinutes()).padStart(2,"0"), s = String(now.getSeconds()).padStart(2,"0");
+  const days = ["日","月","火","水","木","金","土"];
+  const ds = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${days[now.getDay()]}）`;
+  return <div style={{ display:"flex", alignItems:"baseline", gap:16 }}>
+    <span style={{ fontFamily:"'Courier Prime','SF Mono',monospace", fontSize:42, fontWeight:700, color:"white", letterSpacing:2, lineHeight:1, textShadow:"0 2px 20px rgba(0,0,0,0.3)" }}>{h}:{m}<span style={{ fontSize:24, opacity:0.6 }}>:{s}</span></span>
+    <span style={{ fontSize:16, color:"rgba(255,255,255,0.8)", fontWeight:500 }}>{ds}</span>
+  </div>;
+}
+
+function SignageWeather({ weather }) {
+  if (!weather) return null;
+  return <div style={{ display:"flex", alignItems:"center", gap:20, background:"rgba(255,255,255,0.12)", backdropFilter:"blur(10px)", borderRadius:16, padding:"12px 24px" }}>
+    <div style={{ fontSize:14, color:"rgba(255,255,255,0.7)", fontWeight:600, whiteSpace:"nowrap" }}>🕐 下校時刻の天気</div>
+    <div style={{ width:1, height:28, background:"rgba(255,255,255,0.2)" }}/>
+    <div style={{ fontSize:36 }}>{weather.icon}</div>
+    <div><div style={{ fontSize:22, fontWeight:700, color:"white" }}>{weather.temp}°C</div><div style={{ fontSize:13, color:"rgba(255,255,255,0.7)" }}>{weather.description}</div></div>
+    <div style={{ width:1, height:28, background:"rgba(255,255,255,0.2)" }}/>
+    <div style={{ display:"flex", gap:16 }}>
+      {[["湿度",weather.humidity+"%"],["風速",weather.wind+"m/s"],["降水確率",weather.rain+"%"]].map(([l,v])=>
+        <div key={l} style={{ textAlign:"center" }}><div style={{ fontSize:11, color:"rgba(255,255,255,0.5)" }}>{l}</div><div style={{ fontSize:15, fontWeight:600, color: l==="降水確率"&&weather.rain>=50?"#fbbf24":"white" }}>{v}</div></div>
+      )}
+    </div>
+  </div>;
+}
+
+function SignageSlide({ event, visible, fadeDuration }) {
+  const color = getSCColor(event.category);
+  const remaining = daysUntil(event.date);
+  const appCount = (event.applicants||[]).length;
+  const cap = event.capacity || 0;
+  const fillPct = cap > 0 ? Math.min((appCount / cap) * 100, 100) : 0;
+  const isVol = event.type === "volunteer";
+  const latestNotice = event.emergencyNotices?.length > 0 ? event.emergencyNotices[event.emergencyNotices.length - 1] : null;
   const nt = latestNotice ? (NOTICE_TYPES[latestNotice.type] || NOTICE_TYPES.other) : null;
-  return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#1e1b4b,#312e81,#4c1d95)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white", padding: 40, fontFamily: "Hiragino Kaku Gothic ProN, sans-serif" }}>
-      <div style={{ fontSize: 13, letterSpacing: 6, opacity: 0.6, marginBottom: 24 }}>🎪 EVENT NAVI — DIGITAL SIGNAGE</div>
-      {latestNotice && (
-        <div style={{ background: nt.color + "dd", border: `2px solid ${nt.border}`, borderRadius: 16, padding: "14px 28px", marginBottom: 28, maxWidth: 700, width: "100%", textAlign: "center" }}>
-          <div style={{ fontSize: 16, fontWeight: 800 }}>{nt.icon} 【緊急連絡】{nt.label}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}>{latestNotice.message}</div>
+
+  return <div style={{ position:"absolute", inset:0, opacity:visible?1:0, transition:`opacity ${fadeDuration}s ease-in-out`, display:"flex", flexDirection:"column", padding:"0 60px 40px 60px", pointerEvents:visible?"auto":"none" }}>
+    {/* 緊急連絡バナー */}
+    {latestNotice && <div style={{ background:nt.color+"dd", border:`2px solid ${nt.border}`, borderRadius:14, padding:"12px 24px", marginBottom:16, textAlign:"center" }}>
+      <span style={{ fontSize:16, fontWeight:800, color:"white" }}>{nt.icon} 【緊急】{nt.label}：{latestNotice.message}</span>
+    </div>}
+    {/* タイプバッジ */}
+    <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20 }}>
+      <div style={{ background:isVol?"linear-gradient(135deg,#f59e0b,#d97706)":"linear-gradient(135deg,#10b981,#059669)", borderRadius:16, padding:"12px 32px", fontSize:26, fontWeight:900, color:"white", boxShadow:isVol?"0 4px 20px rgba(245,158,11,0.4)":"0 4px 20px rgba(16,185,129,0.4)", letterSpacing:2 }}>
+        {isVol ? "📢 ボランティア募集" : "📅 イベント案内"}
+      </div>
+      <div style={{ background:remaining==="今日"?"rgba(250,204,21,0.25)":"rgba(255,255,255,0.1)", borderRadius:30, padding:"8px 20px", fontSize:15, fontWeight:700, color:remaining==="今日"?"#fbbf24":"rgba(255,255,255,0.8)", border:remaining==="今日"?"1px solid rgba(250,204,21,0.4)":"1px solid rgba(255,255,255,0.15)" }}>{remaining}</div>
+      <div style={{ background:"rgba(255,255,255,0.08)", borderRadius:30, padding:"8px 18px", fontSize:14, fontWeight:500, color:"rgba(255,255,255,0.6)" }}>{event.category}</div>
+      {isVol && event.deadline && <div style={{ background:"rgba(239,68,68,0.25)", border:"1px solid rgba(239,68,68,0.5)", borderRadius:30, padding:"8px 22px", fontSize:15, fontWeight:800, color:"#fca5a5", display:"flex", alignItems:"center", gap:8 }}><span style={{ fontSize:18 }}>⏰</span>{deadlineLabel(event.deadline)}</div>}
+    </div>
+    {/* タイトル */}
+    <div style={{ display:"flex", alignItems:"center", gap:24, marginBottom:20 }}>
+      <div style={{ fontSize:72, lineHeight:1, filter:"drop-shadow(0 4px 20px rgba(0,0,0,0.2))" }}>{event.image}</div>
+      <h1 style={{ fontSize:52, fontWeight:900, color:"white", lineHeight:1.2, margin:0, letterSpacing:-1, textShadow:"0 4px 30px rgba(0,0,0,0.3)", fontFamily:"'Noto Sans JP','Hiragino Kaku Gothic ProN',sans-serif" }}>{event.title}</h1>
+    </div>
+    {/* 説明 */}
+    <p style={{ fontSize:22, lineHeight:1.8, color:"rgba(255,255,255,0.85)", margin:"0 0 32px", maxWidth:900, fontFamily:"'Noto Sans JP','Hiragino Kaku Gothic ProN',sans-serif" }}>{event.description}</p>
+    {/* 情報カード */}
+    <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
+      {[["📅","日時",`${formatSignageDate(event.date)}　${event.time||""}`],["📍","場所",event.location],["👥","主催",event.organizerName||event.organizer]].map(([ic,lb,vl])=>
+        <div key={lb} style={{ background:"rgba(255,255,255,0.1)", backdropFilter:"blur(8px)", borderRadius:20, padding:"18px 28px", border:"1px solid rgba(255,255,255,0.12)", minWidth:200 }}>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:6, fontWeight:600 }}>{ic} {lb}</div>
+          <div style={{ fontSize:20, fontWeight:700, color:"white", lineHeight:1.4 }}>{vl}</div>
         </div>
       )}
-      <div style={{ fontSize: 90, marginBottom: 20 }}>{ev.image}</div>
-      <h1 style={{ fontSize: 42, fontWeight: 800, margin: "0 0 14px", textAlign: "center" }}>{ev.title}</h1>
-      <p style={{ fontSize: 20, opacity: 0.8, maxWidth: 680, textAlign: "center", lineHeight: 1.7, margin: "0 0 36px" }}>{ev.description}</p>
-      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", justifyContent: "center" }}>
-        {[["📅", formatDate(ev.date) + " " + ev.time], ["📍", ev.location], ["👥", ev.capacityUnlimited ? "定員なし" : `残り${Math.max(ev.capacity - ev.applicants.length, 0)}名`]].map(([icon, text]) => (
-          <div key={icon} style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(10px)", borderRadius: 16, padding: "14px 24px", textAlign: "center" }}>
-            <div style={{ fontSize: 26 }}>{icon}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginTop: 6 }}>{text}</div>
-          </div>
-        ))}
+      <div style={{ background:"rgba(255,255,255,0.1)", backdropFilter:"blur(8px)", borderRadius:20, padding:"18px 28px", border:"1px solid rgba(255,255,255,0.12)", minWidth:220 }}>
+        <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:6, fontWeight:600 }}>👤 参加状況</div>
+        <div style={{ fontSize:24, fontWeight:800, color:"white", marginBottom:10 }}>{event.capacityUnlimited ? `${appCount}名参加` : `${appCount} / ${cap}名`}</div>
+        {!event.capacityUnlimited && <><div style={{ height:8, borderRadius:4, background:"rgba(255,255,255,0.15)", overflow:"hidden" }}>
+          <div style={{ height:"100%", borderRadius:4, width:`${fillPct}%`, background:fillPct>=80?"linear-gradient(90deg,#fbbf24,#f59e0b)":`linear-gradient(90deg,${color.accent},white)`, transition:"width 1s ease" }}/>
+        </div>{fillPct >= 80 && <div style={{ fontSize:12, color:"#fbbf24", marginTop:6, fontWeight:700 }}>まもなく定員！</div>}</>}
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 40 }}>
-        {approved.map((_, i) => <div key={i} onClick={() => setIdx(i)} style={{ width: i === idx ? 24 : 8, height: 8, borderRadius: 4, background: i === idx ? "#a78bfa" : "rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.3s" }} />)}
-      </div>
-      <div style={{ position: "absolute", bottom: 20, right: 30, fontSize: 12, opacity: 0.4 }}>{new Date().toLocaleString("ja-JP")}</div>
     </div>
-  );
+  </div>;
+}
+
+function SignageProgressDots({ total, current, progress }) {
+  return <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+    {Array.from({ length: total }).map((_, i) => <div key={i} style={{ width:i===current?40:10, height:10, borderRadius:5, background:i===current?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.15)", overflow:"hidden", position:"relative", transition:"width 0.5s ease" }}>
+      {i===current && <div style={{ position:"absolute", left:0, top:0, bottom:0, width:`${progress}%`, background:"white", borderRadius:5, transition:"width 0.1s linear" }}/>}
+    </div>)}
+  </div>;
+}
+
+function SignageAdminPanel({ settings, onUpdate, onClose, countdown }) {
+  const [local, setLocal] = useState({ ...settings });
+  const ss = { width:"100%", height:6, borderRadius:3, appearance:"none", background:"#334155", outline:"none", cursor:"pointer" };
+  return <div style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.7)", backdropFilter:"blur(8px)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+    <div style={{ background:"#1e293b", borderRadius:24, padding:40, width:480, maxHeight:"80vh", overflow:"auto", border:"1px solid rgba(255,255,255,0.1)", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:32 }}>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"white" }}>⚙️ サイネージ設定</h2>
+        <button onClick={onClose} style={{ background:"rgba(255,255,255,0.1)", border:"none", borderRadius:10, width:36, height:36, color:"white", fontSize:18, cursor:"pointer" }}>✕</button>
+      </div>
+      {[
+        ["スライド表示時間", "slideDuration", 3, 30, 1, "秒", "3秒", "30秒"],
+        ["フェード速度", "fadeDuration", 0.3, 3, 0.1, "秒", "速い 0.3秒", "ゆっくり 3秒"],
+        ["データ自動リロード", "reloadInterval", 1, 30, 1, "分ごと", "1分", "30分"],
+      ].map(([label, key, min, max, step, unit, minL, maxL]) => <div key={key} style={{ marginBottom:28 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+          <label style={{ fontSize:14, fontWeight:600, color:"rgba(255,255,255,0.8)" }}>{label}</label>
+          <span style={{ fontSize:14, fontWeight:700, color:"#60a5fa" }}>{local[key]}{unit}</span>
+        </div>
+        <input type="range" min={min} max={max} step={step} value={local[key]} onChange={e => setLocal(p => ({ ...p, [key]: Number(e.target.value) }))} style={ss}/>
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:4, fontSize:11, color:"rgba(255,255,255,0.3)" }}><span>{minL}</span><span>{maxL}</span></div>
+      </div>)}
+      <div style={{ marginBottom:8, fontSize:12, color:"rgba(255,255,255,0.4)" }}>次回リロードまで：約{countdown}分</div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:36 }}>
+        <label style={{ fontSize:14, fontWeight:600, color:"rgba(255,255,255,0.8)" }}>画面焼き付き防止</label>
+        <button onClick={() => setLocal(p => ({ ...p, burnInProtection: !p.burnInProtection }))} style={{ width:52, height:28, borderRadius:14, border:"none", cursor:"pointer", background:local.burnInProtection?"#3b82f6":"#475569", position:"relative", transition:"background 0.2s" }}>
+          <div style={{ width:22, height:22, borderRadius:11, background:"white", position:"absolute", top:3, left:local.burnInProtection?27:3, transition:"left 0.2s", boxShadow:"0 2px 4px rgba(0,0,0,0.3)" }}/>
+        </button>
+      </div>
+      <div style={{ display:"flex", gap:12 }}>
+        <button onClick={() => { onUpdate(local); onClose(); }} style={{ flex:1, padding:"14px 0", borderRadius:14, border:"none", background:"linear-gradient(135deg,#3b82f6,#2563eb)", color:"white", fontSize:16, fontWeight:700, cursor:"pointer" }}>保存して閉じる</button>
+        <button onClick={onClose} style={{ padding:"14px 24px", borderRadius:14, border:"1px solid rgba(255,255,255,0.15)", background:"transparent", color:"rgba(255,255,255,0.6)", fontSize:14, fontWeight:600, cursor:"pointer" }}>キャンセル</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function SignageIdleScreen({ now, weather, offset }) {
+  const h = String(now.getHours()).padStart(2,"0"), m = String(now.getMinutes()).padStart(2,"0"), s = String(now.getSeconds()).padStart(2,"0");
+  const days = ["日","月","火","水","木","金","土"];
+  const ds = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${days[now.getDay()]}）`;
+  return <div style={{ width:"100%", height:"100vh", background:"linear-gradient(135deg,#0f172a,#1e293b)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"'Noto Sans JP','Hiragino Kaku Gothic ProN',sans-serif", position:"relative", overflow:"hidden", transform:`translate(${offset.x}px,${offset.y}px)`, transition:"transform 2s ease" }}>
+    <div style={{ position:"absolute", inset:0, pointerEvents:"none", backgroundImage:"radial-gradient(circle at 30% 70%,rgba(59,130,246,0.08) 0%,transparent 50%),radial-gradient(circle at 70% 30%,rgba(139,92,246,0.06) 0%,transparent 50%)" }}/>
+    <div style={{ textAlign:"center", position:"relative", zIndex:1 }}>
+      <div style={{ fontFamily:"'Courier Prime','SF Mono',monospace", fontSize:120, fontWeight:700, color:"white", letterSpacing:4, lineHeight:1, textShadow:"0 4px 40px rgba(59,130,246,0.3)" }}>{h}:{m}<span style={{ fontSize:60, opacity:0.4 }}>:{s}</span></div>
+      <div style={{ fontSize:28, color:"rgba(255,255,255,0.5)", marginTop:16, fontWeight:500, letterSpacing:4 }}>{ds}</div>
+    </div>
+    <SignageWeather weather={weather}/>
+    <div style={{ marginTop:48, fontSize:18, color:"rgba(255,255,255,0.25)", fontWeight:500, letterSpacing:2 }}>現在表示するイベントはありません</div>
+    <div style={{ position:"absolute", bottom:40, fontSize:14, color:"rgba(255,255,255,0.15)", fontWeight:600 }}>イベントナビ — 八木中ネット</div>
+  </div>;
+}
+
+// ダミー天気（本番はOpenWeatherMap API）
+const SIGNAGE_WEATHER = { temp:18, description:"くもり時々晴れ", icon:"⛅", humidity:55, wind:3.2, rain:10 };
+
+function SignagePage({ events }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [settings, setSettings] = useState(SIGNAGE_DEFAULTS);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [lastReload, setLastReload] = useState(Date.now());
+  const [countdown, setCountdown] = useState(SIGNAGE_DEFAULTS.reloadInterval);
+  const now = useCurrentTime();
+  const offset = useBurnInOffset(settings.burnInProtection);
+  const activeEvents = events.filter(e => e.status === "approved" && daysUntil(e.date) !== "終了");
+
+  // リロードカウントダウン
+  useEffect(() => {
+    const id = setInterval(() => { setCountdown(Math.max(0, Math.round(settings.reloadInterval - (Date.now() - lastReload) / 60000))); }, 10000);
+    return () => clearInterval(id);
+  }, [lastReload, settings.reloadInterval]);
+
+  // ページ自動リロード（Firestoreはリアルタイムだが、ブラウザ長時間稼働対策）
+  useEffect(() => {
+    const id = setInterval(() => { setLastReload(Date.now()); }, settings.reloadInterval * 60000);
+    return () => clearInterval(id);
+  }, [settings.reloadInterval]);
+
+  // スライド自動切り替え
+  useEffect(() => {
+    if (activeEvents.length <= 0) return;
+    const dur = settings.slideDuration * 1000;
+    const start = Date.now();
+    const id = setInterval(() => {
+      const elapsed = Date.now() - start;
+      setProgress(Math.min((elapsed / dur) * 100, 100));
+      if (elapsed >= dur) { setCurrentIndex(prev => (prev + 1) % activeEvents.length); setProgress(0); clearInterval(id); }
+    }, 50);
+    return () => clearInterval(id);
+  }, [currentIndex, activeEvents.length, settings.slideDuration]);
+
+  useEffect(() => { if (activeEvents.length > 0 && currentIndex >= activeEvents.length) setCurrentIndex(0); }, [activeEvents.length, currentIndex]);
+
+  // キーボード「A」で管理者パネル
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "a" || e.key === "A") setShowAdmin(prev => !prev); };
+    window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  if (activeEvents.length === 0) return <>
+    <SignageIdleScreen now={now} weather={SIGNAGE_WEATHER} offset={offset}/>
+    {showAdmin && <SignageAdminPanel settings={settings} onUpdate={setSettings} onClose={() => setShowAdmin(false)} countdown={countdown}/>}
+  </>;
+
+  const ev = activeEvents[currentIndex] || activeEvents[0];
+  const color = getSCColor(ev.category);
+
+  return <div style={{ width:"100%", height:"100vh", background:color.bg, fontFamily:"'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif", overflow:"hidden", position:"relative", transition:`background ${settings.fadeDuration}s ease-in-out`, transform:`translate(${offset.x}px,${offset.y}px)` }}>
+    <div style={{ position:"absolute", inset:0, pointerEvents:"none", backgroundImage:"radial-gradient(circle at 20% 80%,rgba(255,255,255,0.06) 0%,transparent 50%),radial-gradient(circle at 80% 20%,rgba(255,255,255,0.04) 0%,transparent 50%),radial-gradient(circle at 50% 50%,rgba(0,0,0,0.1) 0%,transparent 70%)" }}/>
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"24px 60px", position:"relative", zIndex:10 }}>
+      <SignageClock now={now}/>
+      <SignageWeather weather={SIGNAGE_WEATHER}/>
+    </div>
+    <div style={{ position:"relative", height:"calc(100vh - 160px)" }}>
+      {activeEvents.map((event, i) => <SignageSlide key={event.firestoreId||event.id} event={event} visible={i === currentIndex} fadeDuration={settings.fadeDuration}/>)}
+    </div>
+    <div style={{ position:"absolute", bottom:0, left:0, right:0, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"20px 60px", background:"linear-gradient(transparent,rgba(0,0,0,0.3))" }}>
+      <SignageProgressDots total={activeEvents.length} current={currentIndex} progress={progress}/>
+      <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+        <div style={{ textAlign:"right" }}><div style={{ fontSize:14, color:"rgba(255,255,255,0.7)", fontWeight:600 }}>詳細・参加申込はこちら →</div><div style={{ fontSize:12, color:"rgba(255,255,255,0.4)", marginTop:2 }}>イベントナビ（八木中ネット）</div></div>
+        <div style={{ width:80, height:80, background:"white", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><div style={{ textAlign:"center" }}><div style={{ fontSize:28, lineHeight:1 }}>📱</div><div style={{ fontSize:8, color:"#64748b", fontWeight:700, marginTop:2 }}>SCAN</div></div></div>
+      </div>
+    </div>
+    <div style={{ position:"absolute", top:80, right:60, fontSize:11, color:"rgba(255,255,255,0.2)" }}>次回更新：{countdown}分後</div>
+    {showAdmin && <SignageAdminPanel settings={settings} onUpdate={setSettings} onClose={() => setShowAdmin(false)} countdown={countdown}/>}
+  </div>;
 }
 
 // ========== メインアプリ ==========
@@ -1300,6 +1516,9 @@ export default function EventNavi() {
   const [currentUser, setCurrentUser] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // URLパラメータ ?mode=signage で直接サイネージモードを表示
+  const isSignageDirect = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "signage";
 
   // Firestoreからイベントをリアルタイム取得
   useEffect(() => {
@@ -1441,6 +1660,12 @@ export default function EventNavi() {
     showToast("緊急連絡を送信しました。参加者に通知されます", "success");
     setModalType(null); setSelectedEvent(null);
   };
+
+  // URLパラメータ ?mode=signage の場合、ログイン不要でサイネージ直接表示
+  if (isSignageDirect) {
+    if (loading) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#0f172a", color:"white", fontSize:18 }}>読み込み中...</div>;
+    return <SignagePage events={events} />;
+  }
 
   if (!currentUser) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "Hiragino Kaku Gothic ProN, YuGothic, sans-serif", position: "relative", overflow: "hidden" }}>
