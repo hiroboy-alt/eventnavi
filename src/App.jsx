@@ -1971,7 +1971,8 @@ export default function EventNavi() {
             <span style={{ fontSize: 17 }}>{currentUser.role === "participant" ? "👤" : currentUser.role === "organizer" ? "🏢" : "⚙️"}</span>
             <div><div className="header-user-name" style={{ fontSize: 12, fontWeight: 700, color: "#1e1b4b" }}>{currentUser.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{currentUser.role === "participant" ? "参加者" : currentUser.role === "organizer" ? "主催者" : "管理者"}</div></div>
           </div>
-          <button onClick={() => setCurrentUser(null)} style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "white", cursor: "pointer", fontSize: 13, fontWeight: 800, boxShadow: "0 4px 12px rgba(30,27,75,0.4)", letterSpacing: 1 }}>🏠 ホーム</button>
+          <button onClick={() => window.location.href = "https://yagiyama-net.vercel.app"} style={{ padding: "9px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#0284c7,#0369a1)", color: "white", cursor: "pointer", fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>🏠 八木中ネット</button>
+          <button onClick={() => setCurrentUser(null)} style={{ padding: "9px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "white", cursor: "pointer", fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>↩ ログアウト</button>
         </div>
       </header>
 
