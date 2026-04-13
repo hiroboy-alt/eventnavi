@@ -100,9 +100,9 @@ const ROLE_THEME = {
 };
 
 const USERS = {
-  participant: { id: "user1", name: "山本 さくら", role: "participant", email: "sakura@example.com" },
-  organizer: { id: "org1", name: "田中 花子（主催者）", role: "organizer", email: "tanaka@example.com" },
-  admin: { id: "admin1", name: "管理者 鈴木", role: "admin", email: "admin@example.com" }
+  participant: { id: "user1", name: "山本 さくら", role: "participant", email: "hiro.hboy@gmail.com" },
+  organizer: { id: "org1", name: "田中 花子（主催者）", role: "organizer", email: "hiro.hboy@gmail.com" },
+  admin: { id: "admin1", name: "管理者 鈴木", role: "admin", email: "hiro.hboy@gmail.com" }
 };
 
 const STATUS_LABELS = { approved: "承認済み", pending: "審査中", revision: "修正依頼", rejected: "非承認" };
@@ -1552,6 +1552,24 @@ export default function EventNavi() {
   const showToast = (message, type = "success") => setToast({ message, type });
   const unread = notifications.filter(n => !n.read).length;
 
+  // メール通知送信（共通API）
+  const sendEmailNotification = async ({ type, title, body, emails, senderName }) => {
+    try {
+      const res = await fetch("/api/send-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, title, body, emails, senderName }),
+      });
+      const data = await res.json();
+      if (!res.ok) console.error("メール通知エラー:", data);
+      else console.log("メール通知送信完了:", data);
+      return data;
+    } catch (e) {
+      console.error("メール通知送信失敗:", e);
+      return null;
+    }
+  };
+
   const filteredEvents = events.filter(ev => {
     const roleOk = currentUser?.role !== "participant" || ev.status === "approved";
     const catOk = filter === "すべて" || ev.type === filter;
@@ -1600,6 +1618,10 @@ export default function EventNavi() {
         });
         setNotifications(prev => [{ id: Date.now(), message: `新しいイベント「${form.title}」を投稿しました（審査待ち）`, time: "たった今", read: false }, ...prev]);
         showToast("投稿しました！審査をお待ちください", "info");
+        // 管理者にメール通知
+        if (USERS.admin.email) {
+          sendEmailNotification({ type: "event-new", title: `新規イベント申請「${form.title}」`, body: `${organizerDisplay} さんが新しいイベントを申請しました。\n\nイベント名: ${form.title}\n${form.description || ""}\n\nイベントナビにログインして審査してください。`, emails: [USERS.admin.email], senderName: "イベントナビ" });
+        }
       }
     } catch (e) {
       console.error(e);
@@ -1626,6 +1648,10 @@ export default function EventNavi() {
       ...prev
     ]);
     showToast(`${label}を送信しました`, isRevision ? "info" : "error");
+    // 主催者にメール通知
+    if (USERS.organizer.email) {
+      sendEmailNotification({ type: isRevision ? "event-revision" : "event-rejected", title: `${label}「${ev.title}」`, body: `管理者（${currentUser.name}）より${label}がありました。\n\n${label}理由:\n${comment}\n\nイベントナビにログインして確認してください。`, emails: [USERS.organizer.email], senderName: "イベントナビ" });
+    }
     setAdminActionTarget(null);
   };
 
@@ -1653,11 +1679,27 @@ export default function EventNavi() {
     return false;
   };
 
+  // イベント承認（共通化）
+  const handleApproveEvent = async (eventId) => {
+    const ev = events.find(e => e.id === eventId);
+    if (ev?.firestoreId) await updateDoc(doc(db, "events", ev.firestoreId), { status: "approved" }).catch(console.error);
+    showToast("承認しました", "success");
+    // 主催者にメール通知
+    if (USERS.organizer.email) {
+      sendEmailNotification({ type: "event-approved-organizer", title: `イベント承認「${ev?.title || ""}"`, body: `おめでとうございます！「${ev?.title || ""}」が承認されました。\n\nイベントナビで公開されています。`, emails: [USERS.organizer.email], senderName: "イベントナビ" });
+    }
+  };
+
   const handleEmergencySave = (notice) => {
     const nt = NOTICE_TYPES[notice.type];
     setEvents(prev => prev.map(ev => ev.id === selectedEvent.id ? { ...ev, emergencyNotices: [...(ev.emergencyNotices || []), notice] } : ev));
     setNotifications(prev => [{ id: Date.now(), message: `【緊急連絡】「${selectedEvent.title}」：${nt.icon}${nt.label} — ${notice.message.slice(0, 35)}…`, time: "たった今", read: false }, ...prev]);
     showToast("緊急連絡を送信しました。参加者に通知されます", "success");
+    // 全ユーザーにメール通知（テスト用）
+    const emergencyEmails = Object.values(USERS).map(u => u.email).filter(Boolean);
+    if (emergencyEmails.length > 0) {
+      sendEmailNotification({ type: "event-emergency", title: `【緊急】${selectedEvent.title}：${nt.label}`, body: notice.message, emails: emergencyEmails, senderName: "イベントナビ" });
+    }
     setModalType(null); setSelectedEvent(null);
   };
 
@@ -1981,11 +2023,7 @@ export default function EventNavi() {
               <EventCard key={ev.id} event={ev} currentUser={currentUser}
                 onOpenApply={(ev, type) => { setSelectedEvent(ev); setApplyType(type); setModalType("apply"); }}
                 onViewDetail={ev => { setSelectedEvent(ev); setModalType("detail"); }}
-                onApprove={async (id) => {
-                  const ev = events.find(e => e.id === id);
-                  if (ev?.firestoreId) await updateDoc(doc(db, "events", ev.firestoreId), { status: "approved" }).catch(console.error);
-                  showToast("承認しました", "success");
-                }}
+                onApprove={handleApproveEvent}
                 onRevision={id => { setEvents(prev => prev.map(e => e.id === id ? { ...e, status: "revision" } : e)); showToast("修正依頼を送信しました", "info"); }}
                 onEdit={ev => setPinCheckTarget({ type: "edit", event: ev })}
                 onEmergency={ev => { setSelectedEvent(ev); setModalType("emergency"); }}
@@ -2091,7 +2129,7 @@ export default function EventNavi() {
               )}
               {currentUser.role === "admin" && (
                 <>
-                  <button onClick={() => { (async () => { if (selectedEvent?.firestoreId) await updateDoc(doc(db, "events", selectedEvent.firestoreId), { status: "approved" }).catch(console.error); showToast("承認しました", "success"); setModalType(null); })(); }} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#dcfce7", color: "#15803d", cursor: "pointer", fontWeight: 700 }}>✅ 承認</button>
+                  <button onClick={() => { handleApproveEvent(selectedEvent.id); setModalType(null); }} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#dcfce7", color: "#15803d", cursor: "pointer", fontWeight: 700 }}>✅ 承認</button>
                   <button onClick={() => { setModalType(null); setTimeout(() => setAdminActionTarget({ event: selectedEvent, type: "revision" }), 50); }} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#fffbeb", color: "#d97706", cursor: "pointer", fontWeight: 700 }}>🔄 修正依頼</button>
                   <button onClick={() => { setModalType(null); setTimeout(() => setAdminActionTarget({ event: selectedEvent, type: "rejected" }), 50); }} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontWeight: 700 }}>🚫 非承認</button>
                   <button onClick={() => generateFlyerPDF(selectedEvent)} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#fef3c7", color: "#b45309", cursor: "pointer", fontWeight: 700 }}>📄 フライヤー</button>
