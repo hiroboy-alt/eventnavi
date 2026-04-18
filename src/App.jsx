@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { db } from "./firebase";
+import { db, sharedDb } from "./firebase";
 import {
-  collection, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy, query
+  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy, query, getDocs, where
 } from "firebase/firestore";
 
 // ========== 定数・初期データ ==========
@@ -1648,6 +1648,15 @@ export default function EventNavi() {
       ...prev
     ]);
     showToast(`${label}を送信しました`, isRevision ? "info" : "error");
+    // グループウェアのカレンダーから該当イベントを削除
+    try {
+      const snap = await getDocs(collection(sharedDb, "events"));
+      snap.docs.forEach(d => {
+        if (d.data().source === "eventnavi" && d.data().sourceId === String(ev.id)) {
+          deleteDoc(doc(sharedDb, "events", d.id)).catch(console.error);
+        }
+      });
+    } catch (e) { console.error("グループウェア連携削除エラー:", e); }
     // 主催者にメール通知
     if (USERS.organizer.email) {
       sendEmailNotification({ type: isRevision ? "event-revision" : "event-rejected", title: `${label}「${ev.title}」`, body: `管理者（${currentUser.name}）より${label}がありました。\n\n${label}理由:\n${comment}\n\nイベントナビにログインして確認してください。`, emails: [USERS.organizer.email], senderName: "イベントナビ" });
@@ -1684,6 +1693,21 @@ export default function EventNavi() {
     const ev = events.find(e => e.id === eventId);
     if (ev?.firestoreId) await updateDoc(doc(db, "events", ev.firestoreId), { status: "approved" }).catch(console.error);
     showToast("承認しました", "success");
+    // グループウェアのカレンダーに「地域」イベントとして追加
+    if (ev?.date && ev?.title) {
+      try {
+        await addDoc(collection(sharedDb, "events"), {
+          date: ev.date,
+          title: `[地域] ${ev.title}`,
+          category: "district",
+          source: "eventnavi",
+          sourceId: String(ev.id),
+        });
+        console.log("グループウェアカレンダーに連携:", ev.title);
+      } catch (e) {
+        console.error("グループウェア連携エラー:", e);
+      }
+    }
     // 主催者にメール通知
     if (USERS.organizer.email) {
       sendEmailNotification({ type: "event-approved-organizer", title: `イベント承認「${ev?.title || ""}"`, body: `おめでとうございます！「${ev?.title || ""}」が承認されました。\n\nイベントナビで公開されています。`, emails: [USERS.organizer.email], senderName: "イベントナビ" });
