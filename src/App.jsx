@@ -191,7 +191,8 @@ function generateFlyerPDF(event) {
     .description { flex:1; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; line-height:1.6; font-size:11px; color:#374151; }
     .description h3 { font-size:10px; font-weight:800; color:${th.accent}; margin-bottom:4px; letter-spacing:1px; }
     .qr-col { display:flex; flex-direction:column; align-items:center; gap:5px; flex-shrink:0; }
-    .qr-box { width:72px; height:72px; border:2px dashed #cbd5e1; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:9px; color:#94a3b8; text-align:center; line-height:1.5; }
+    .qr-box { width:90px; height:90px; border-radius:8px; overflow:hidden; }
+    .qr-box img { width:100%; height:100%; display:block; }
     .qr-lbl { font-size:9px; color:#94a3b8; }
 
     /* ── 切り取り線 ── */
@@ -269,8 +270,8 @@ function generateFlyerPDF(event) {
     <!-- 情報グリッド -->
     <div style="overflow:hidden">
       <div class="qr-col" style="float:right;margin:0 0 8px 14px">
-        <div class="qr-box">QR<br>コード</div>
-        <div class="qr-lbl">オンライン申込</div>
+        <div class="qr-box"><img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent("https://eventnavi.vercel.app?event=" + event.id)}" alt="QR"/></div>
+        <div class="qr-lbl">スマホで申込 →</div>
       </div>
       <div class="info-grid">
         <div class="info-card"><div class="info-label">👤 主催者・団体名</div><div class="info-value">${event.organizerName || event.organizer}</div></div>
@@ -1523,6 +1524,15 @@ export default function EventNavi() {
 
   // URLパラメータ ?mode=signage で直接サイネージモードを表示
   const isSignageDirect = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "signage";
+
+  // URLパラメータ ?event=ID でイベント詳細を自動表示（QRコードからのアクセス用）
+  const urlEventId = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("event");
+  useEffect(() => {
+    if (urlEventId && events.length > 0 && currentUser && !selectedEvent) {
+      const ev = events.find(e => String(e.id) === urlEventId);
+      if (ev) { setSelectedEvent(ev); setModalType("detail"); }
+    }
+  }, [urlEventId, events, currentUser]);
 
   // Firestoreからイベントをリアルタイム取得
   useEffect(() => {
