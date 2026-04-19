@@ -175,7 +175,7 @@ function generateFlyerPDF(event) {
     .header::after { content:''; position:absolute; bottom:-30px; right:-30px; width:120px; height:120px; background:rgba(255,255,255,0.08); border-radius:50%; }
     .header-icon { font-size:42px; line-height:1; z-index:1; }
     .header-body { flex:1; z-index:1; }
-    .header-badge { display:inline-block; background:rgba(255,255,255,0.25); border:1px solid rgba(255,255,255,0.4); padding:2px 10px; border-radius:20px; font-size:10px; margin-bottom:4px; font-weight:600; }
+    .header-badge { display:inline-block; background:rgba(255,255,255,0.3); border:2px solid rgba(255,255,255,0.5); padding:6px 24px; border-radius:30px; font-size:30px; margin-bottom:8px; font-weight:900; letter-spacing:3px; }
     .header h1 { font-size:20px; font-weight:900; line-height:1.2; margin-bottom:4px; }
     .header-date { font-size:12px; opacity:0.95; font-weight:600; line-height:1.5; }
 
