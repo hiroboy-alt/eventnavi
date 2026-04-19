@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { db, sharedDb } from "./firebase";
+import { db, sharedDb, sharedAuth } from "./firebase";
 import {
-  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy, query, getDocs, where
+  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp, orderBy, query, getDocs, where
 } from "firebase/firestore";
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 
 // ========== 定数・初期データ ==========
 const GRADE_TYPES = ["大人", "大学生", "高校生", "中学生", "小学生", "幼児"];
@@ -99,10 +100,28 @@ const ROLE_THEME = {
   },
 };
 
-const USERS = {
-  participant: { id: "user1", name: "山本 さくら", role: "participant", email: "hiro.hboy@gmail.com" },
-  organizer: { id: "org1", name: "田中 花子（主催者）", role: "organizer", email: "hiro.hboy@gmail.com" },
-  admin: { id: "admin1", name: "管理者 鈴木", role: "admin", email: "hiro.hboy@gmail.com" }
+// 管理者ロール（PTA本部役員 + 先生）
+const ADMIN_ROLES = ["会長","副会長","監事","幹事","会計","事務長","校長","教頭","教務主任"];
+const isAdminRole = (role) => ADMIN_ROLES.includes(role);
+
+// ユーザーメール取得ヘルパー（yagiyama-net の users コレクションから）
+const fetchAllUserEmails = async () => {
+  try {
+    const snap = await getDocs(collection(sharedDb, "users"));
+    return snap.docs.map(d => d.data().email).filter(Boolean);
+  } catch (e) { console.error("ユーザーメール取得エラー:", e); return []; }
+};
+const fetchAdminEmails = async () => {
+  try {
+    const snap = await getDocs(collection(sharedDb, "users"));
+    return snap.docs.map(d => d.data()).filter(u => isAdminRole(u.role)).map(u => u.email).filter(Boolean);
+  } catch (e) { console.error("管理者メール取得エラー:", e); return []; }
+};
+const fetchUserEmail = async (uid) => {
+  try {
+    const snap = await getDoc(doc(sharedDb, "users", uid));
+    return snap.exists() ? snap.data().email : null;
+  } catch (e) { console.error("ユーザーメール取得エラー:", e); return null; }
 };
 
 const STATUS_LABELS = { approved: "承認済み", pending: "審査中", revision: "修正依頼", rejected: "非承認" };
@@ -1550,6 +1569,53 @@ export default function EventNavi() {
   const [currentUser, setCurrentUser] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPw, setLoginPw] = useState("");
+  const [loginErr, setLoginErr] = useState("");
+
+  // Firebase Auth: yagiyama-net の認証を使用
+  useEffect(() => {
+    const unsub = onAuthStateChanged(sharedAuth, async (u) => {
+      if (u) {
+        const snap = await getDoc(doc(sharedDb, "users", u.uid));
+        if (snap.exists()) {
+          const profile = snap.data();
+          const role = profile.role || profile.ptaRole || "一般";
+          setCurrentUser({
+            id: u.uid,
+            name: profile.name,
+            nickname: (profile.name || "").split(" ")[0],
+            role: isAdminRole(role) ? "admin" : "participant",
+            actualRole: role,
+            email: profile.email || u.email,
+            category: profile.category,
+          });
+        } else {
+          setCurrentUser(null);
+        }
+      } else {
+        setCurrentUser(null);
+      }
+      setAuthLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  const handleLogin = async () => {
+    setLoginErr("");
+    if (!loginEmail || !loginPw) { setLoginErr("メールアドレスとパスワードを入力してください"); return; }
+    try {
+      await signInWithEmailAndPassword(sharedAuth, loginEmail, loginPw);
+    } catch (e) {
+      setLoginErr("ログインに失敗しました。メールアドレスとパスワードを確認してください。");
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(sharedAuth);
+    setCurrentUser(null);
+  };
 
   // URLパラメータ ?mode=signage で直接サイネージモードを表示
   const isSignageDirect = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "signage";
@@ -1667,9 +1733,10 @@ export default function EventNavi() {
         setNotifications(prev => [{ id: Date.now(), message: `新しいイベント「${form.title}」を投稿しました（審査待ち）`, time: "たった今", read: false }, ...prev]);
         showToast("投稿しました！審査をお待ちください", "info");
         // 管理者にメール通知
-        if (USERS.admin.email) {
-          sendEmailNotification({ type: "event-new", title: `新規イベント申請「${form.title}」`, body: `${organizerDisplay} さんが新しいイベントを申請しました。\n\nイベント名: ${form.title}\n${form.description || ""}\n\nイベントナビにログインして審査してください。`, emails: [USERS.admin.email], senderName: "イベントナビ" });
-        }
+        // 管理者（本部役員＋先生）にメール通知
+        fetchAdminEmails().then(emails => {
+          if (emails.length > 0) sendEmailNotification({ type: "event-new", title: `新規イベント申請「${form.title}」`, body: `${organizerDisplay} さんが新しいイベントを申請しました。\n\nイベント名: ${form.title}\n${form.description || ""}\n\nイベントナビにログインして審査してください。`, emails, senderName: "イベントナビ" });
+        });
       }
     } catch (e) {
       console.error(e);
@@ -1706,8 +1773,11 @@ export default function EventNavi() {
       });
     } catch (e) { console.error("グループウェア連携削除エラー:", e); }
     // 主催者にメール通知
-    if (USERS.organizer.email) {
-      sendEmailNotification({ type: isRevision ? "event-revision" : "event-rejected", title: `${label}「${ev.title}」`, body: `管理者（${currentUser.name}）より${label}がありました。\n\n${label}理由:\n${comment}\n\nイベントナビにログインして確認してください。`, emails: [USERS.organizer.email], senderName: "イベントナビ" });
+    // 主催者本人にメール通知
+    if (ev.organizerId) {
+      fetchUserEmail(ev.organizerId).then(email => {
+        if (email) sendEmailNotification({ type: isRevision ? "event-revision" : "event-rejected", title: `${label}「${ev.title}」`, body: `管理者（${currentUser.name}）より${label}がありました。\n\n${label}理由:\n${comment}\n\nイベントナビにログインして確認してください。`, emails: [email], senderName: "イベントナビ" });
+      });
     }
     setAdminActionTarget(null);
   };
@@ -1757,9 +1827,10 @@ export default function EventNavi() {
       }
     }
     // 主催者にメール通知
-    if (USERS.organizer.email) {
-      sendEmailNotification({ type: "event-approved-organizer", title: `イベント承認「${ev?.title || ""}"`, body: `おめでとうございます！「${ev?.title || ""}」が承認されました。\n\nイベントナビで公開されています。`, emails: [USERS.organizer.email], senderName: "イベントナビ" });
-    }
+    // 全ユーザーにメール通知（新規イベント公開）
+    fetchAllUserEmails().then(emails => {
+      if (emails.length > 0) sendEmailNotification({ type: "event-approved-organizer", title: `新しいイベント「${ev?.title || ""}」が公開されました`, body: `「${ev?.title || ""}」が承認され、イベントナビで公開されています。\n\n詳細はイベントナビからご確認ください。`, emails, senderName: "イベントナビ" });
+    });
   };
 
   // イベント削除（管理者用）
@@ -1785,13 +1856,13 @@ export default function EventNavi() {
     }
   };
 
-  const handleEmergencySave = (notice) => {
+  const handleEmergencySave = async (notice) => {
     const nt = NOTICE_TYPES[notice.type];
     setEvents(prev => prev.map(ev => ev.id === selectedEvent.id ? { ...ev, emergencyNotices: [...(ev.emergencyNotices || []), notice] } : ev));
     setNotifications(prev => [{ id: Date.now(), message: `【緊急連絡】「${selectedEvent.title}」：${nt.icon}${nt.label} — ${notice.message.slice(0, 35)}…`, time: "たった今", read: false }, ...prev]);
     showToast("緊急連絡を送信しました。参加者に通知されます", "success");
     // 全ユーザーにメール通知（テスト用）
-    const emergencyEmails = Object.values(USERS).map(u => u.email).filter(Boolean);
+    const emergencyEmails = await fetchAllUserEmails();
     if (emergencyEmails.length > 0) {
       sendEmailNotification({ type: "event-emergency", title: `【緊急】${selectedEvent.title}：${nt.label}`, body: notice.message, emails: emergencyEmails, senderName: "イベントナビ" });
     }
@@ -1803,6 +1874,12 @@ export default function EventNavi() {
     if (loading) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#0f172a", color:"white", fontSize:18 }}>読み込み中...</div>;
     return <SignagePage events={events} />;
   }
+
+  if (authLoading) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f4f8" }}>
+      <div style={{ textAlign: "center" }}><div style={{ fontSize: 48 }}>🎪</div><p style={{ fontWeight: 700, color: "#667eea", fontSize: 16, marginTop: 12 }}>読み込み中...</p></div>
+    </div>
+  );
 
   if (!currentUser) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "Hiragino Kaku Gothic ProN, YuGothic, sans-serif", position: "relative", overflow: "hidden" }}>
@@ -1982,29 +2059,21 @@ export default function EventNavi() {
           <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#1e3a5f" }}>🎉 楽しいイベントがあなたを待っています！</p>
         </div>
 
-        <p style={{ fontSize: 12, fontWeight: 700, color: "#1e4060", marginBottom: 14, letterSpacing: 2 }}>ログインして始めよう</p>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[
-            { key: "participant", icon: "👤", label: "参加者としてログイン", sub: "イベントを探して申し込もう！", color: "#0284c7", bg: "linear-gradient(135deg,#38bdf8,#0284c7)" },
-            { key: "organizer", icon: "🏢", label: "主催者としてログイン", sub: "イベントを作成・管理・告知", color: "#d97706", bg: "linear-gradient(135deg,#fbbf24,#f59e0b)" },
-            { key: "admin", icon: "⚙️", label: "管理者としてログイン", sub: "全イベントの承認・監視", color: "#15803d", bg: "linear-gradient(135deg,#4ade80,#16a34a)" }
-          ].map(({ key, icon, label, sub, color, bg }) => (
-            <button key={key} onClick={() => setCurrentUser(USERS[key])}
-              style={{ padding: "14px 18px", borderRadius: 14, border: "none", background: bg, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 14, boxShadow: `0 4px 16px ${color}40`, transition: "transform 0.15s, box-shadow 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = `0 8px 24px ${color}50`; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = `0 4px 16px ${color}40`; }}>
-              <div style={{ fontSize: 26, width: 48, height: 48, borderRadius: 13, background: "rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
-              <div style={{ textAlign: "left" }}>
-                <div style={{ fontWeight: 800, color: "white", fontSize: 14 }}>{label}</div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", marginTop: 2 }}>{sub}</div>
-              </div>
-              <div style={{ marginLeft: "auto", color: "rgba(255,255,255,0.7)", fontSize: 18 }}>→</div>
-            </button>
-          ))}
+        <div style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(12px)", borderRadius: 16, padding: "24px 20px", border: "1px solid rgba(255,255,255,0.5)" }}>
+          <p style={{ fontSize: 14, fontWeight: 800, color: "#1e3a5f", marginBottom: 16, textAlign: "center" }}>八木中ネットアカウントでログイン</p>
+          {loginErr && <div style={{ background: "#fef2f2", color: "#dc2626", padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 12 }}>{loginErr}</div>}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 4 }}>メールアドレス</div>
+            <input value={loginEmail} onChange={e => setLoginEmail(e.target.value)} type="email" placeholder="example@mail.com" style={{ width: "100%", padding: "12px", borderRadius: 10, border: "2px solid #e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 4 }}>パスワード</div>
+            <input value={loginPw} onChange={e => setLoginPw(e.target.value)} type="password" placeholder="8文字以上" onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ width: "100%", padding: "12px", borderRadius: 10, border: "2px solid #e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <button onClick={handleLogin} style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "linear-gradient(135deg,#667eea,#764ba2)", color: "white", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>ログイン</button>
         </div>
 
-        <p style={{ marginTop: 20, fontSize: 11, color: "#1e4060" }}>© イベントナビ — 地域コミュニティをつなぐ</p>
+        <p style={{ marginTop: 16, fontSize: 11, color: "#1e4060", textAlign: "center" }}>八木中ネットで登録したアカウントでログインできます</p>
       </div>
     </div>
   );
@@ -2067,7 +2136,7 @@ export default function EventNavi() {
             <div><div className="header-user-name" style={{ fontSize: 12, fontWeight: 700, color: "#1e1b4b" }}>{currentUser.name}</div><div style={{ fontSize: 10, color: "#94a3b8" }}>{currentUser.role === "participant" ? "参加者" : currentUser.role === "organizer" ? "主催者" : "管理者"}</div></div>
           </div>
           <button onClick={() => window.location.href = "https://yagiyama-net.vercel.app"} style={{ padding: "9px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#0284c7,#0369a1)", color: "white", cursor: "pointer", fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>🏠 八木中ネット</button>
-          <button onClick={() => setCurrentUser(null)} style={{ padding: "9px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "white", cursor: "pointer", fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>↩ ログアウト</button>
+          <button onClick={handleLogout} style={{ padding: "9px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#1e1b4b,#312e81)", color: "white", cursor: "pointer", fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>↩ ログアウト</button>
         </div>
       </header>
 
