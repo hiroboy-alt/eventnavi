@@ -908,7 +908,7 @@ function ApplicationForm({ event, currentUserId, onSubmit, onClose }) {
 }
 
 // ========== イベントカード ==========
-function EventCard({ event, currentUser, onOpenApply, onViewDetail, onApprove, onRevision, onEdit, onEmergency, onRoster, onAdminAction, onFlyer, onCancelApply }) {
+function EventCard({ event, currentUser, onOpenApply, onViewDetail, onApprove, onRevision, onEdit, onEmergency, onRoster, onAdminAction, onFlyer, onCancelApply, onDelete }) {
   const isApplied = event.applicants.some(a => a.id === currentUser.id);
   const isVolApplied = event.volunteerApplicants?.some(a => a.id === currentUser.id);
   const isFull = !event.capacityUnlimited && event.applicants.length >= event.capacity;
@@ -995,6 +995,7 @@ function EventCard({ event, currentUser, onOpenApply, onViewDetail, onApprove, o
               <button onClick={() => onAdminAction(event, "rejected")} style={{ padding: "8px 10px", borderRadius: 10, border: "none", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>🚫 非承認</button>
               <button onClick={() => onFlyer(event)} style={{ padding: "8px 10px", borderRadius: 10, border: "none", background: "#fef3c7", color: "#b45309", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>📄 PDF</button>
               <button onClick={() => onRoster(event)} style={{ padding: "8px 10px", borderRadius: 10, border: "none", background: "#dcfce7", color: "#15803d", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>📊 名簿</button>
+              <button onClick={() => onDelete(event.id)} style={{ padding: "8px 10px", borderRadius: 10, border: "none", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>🗑 削除</button>
             </>
           )}
         </div>
@@ -1714,6 +1715,29 @@ export default function EventNavi() {
     }
   };
 
+  // イベント削除（管理者用）
+  const handleDeleteEvent = async (eventId) => {
+    const ev = events.find(e => e.id === eventId);
+    if (!confirm(`「${ev?.title || ""}」を完全に削除しますか？この操作は取り消せません。`)) return;
+    try {
+      if (ev?.firestoreId) await deleteDoc(doc(db, "events", ev.firestoreId));
+      // グループウェアのカレンダーからも削除
+      try {
+        const snap = await getDocs(collection(sharedDb, "events"));
+        snap.docs.forEach(d => {
+          if (d.data().source === "eventnavi" && d.data().sourceId === String(ev.id)) {
+            deleteDoc(doc(sharedDb, "events", d.id)).catch(console.error);
+          }
+        });
+      } catch (e) { console.error("グループウェア連携削除エラー:", e); }
+      showToast("イベントを削除しました", "info");
+      setModalType(null); setSelectedEvent(null);
+    } catch (e) {
+      console.error("削除エラー:", e);
+      showToast("削除に失敗しました", "error");
+    }
+  };
+
   const handleEmergencySave = (notice) => {
     const nt = NOTICE_TYPES[notice.type];
     setEvents(prev => prev.map(ev => ev.id === selectedEvent.id ? { ...ev, emergencyNotices: [...(ev.emergencyNotices || []), notice] } : ev));
@@ -2056,6 +2080,7 @@ export default function EventNavi() {
                 onAdminAction={(ev, type) => setAdminActionTarget({ event: ev, type })}
                 onFlyer={ev => generateFlyerPDF(ev)}
                 onCancelApply={(ev, applicantId) => setPinCheckTarget({ type: "cancel", event: ev, applicantId })}
+                onDelete={handleDeleteEvent}
               />
             ))}
           </div>
@@ -2159,6 +2184,7 @@ export default function EventNavi() {
                   <button onClick={() => { setModalType(null); setTimeout(() => setAdminActionTarget({ event: selectedEvent, type: "rejected" }), 50); }} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontWeight: 700 }}>🚫 非承認</button>
                   <button onClick={() => generateFlyerPDF(selectedEvent)} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#fef3c7", color: "#b45309", cursor: "pointer", fontWeight: 700 }}>📄 フライヤー</button>
                   <button onClick={() => setRosterEvent(selectedEvent)} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#dcfce7", color: "#15803d", cursor: "pointer", fontWeight: 700 }}>📊 名簿</button>
+                  <button onClick={() => handleDeleteEvent(selectedEvent.id)} style={{ flex: 1, padding: "11px", borderRadius: 11, border: "none", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontWeight: 700 }}>🗑 削除</button>
                 </>
               )}
             </div>
