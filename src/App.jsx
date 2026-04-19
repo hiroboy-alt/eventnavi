@@ -282,6 +282,8 @@ function generateFlyerPDF(event) {
         <div class="info-card"><div class="info-label">🕐 集合 / 解散</div><div class="info-value">${event.meetingTime} ／ ${event.dismissalTime}</div></div>` : ""}
         <div class="info-card"><div class="info-label">🧑‍💼 担当者</div><div class="info-value">${event.contactPerson || "—"}</div></div>
         <div class="info-card"><div class="info-label">📞 担当者連絡先</div><div class="info-value">${event.contactPhone || "—"}</div></div>
+        ${event.eligibility?.length ? `<div class="info-card"><div class="info-label">🎯 参加資格</div><div class="info-value">${event.eligibility.join("・")}</div></div>` : ""}
+        ${event.targetArea && event.targetArea !== "指定なし" ? `<div class="info-card"><div class="info-label">🏘️ 対象地区</div><div class="info-value">${event.targetArea === "その他" ? (event.targetAreaOther || "その他") : event.targetArea}</div></div>` : ""}
       </div>
     </div>
 
@@ -1189,7 +1191,7 @@ function PinSetupStep({ label, onConfirm, onBack }) {
 }
 
 function EventForm({ event, onSave, onClose }) {
-  const [form, setForm] = useState(event || { type: "event", title: "", description: "", date: "", time: "10:00", location: "", capacity: 30, capacityUnlimited: false, image: "🎉", volunteers: 0, volunteerApplicants: [], meetingPlace: "", meetingTime: "09:00", dismissalTime: "17:00", fee: "", organizerName: "", contactPerson: "", contactPhone: "" });
+  const [form, setForm] = useState(event || { type: "event", title: "", description: "", date: "", time: "10:00", location: "", capacity: 30, capacityUnlimited: false, image: "🎉", volunteers: 0, volunteerApplicants: [], meetingPlace: "", meetingTime: "09:00", dismissalTime: "17:00", fee: "", organizerName: "", contactPerson: "", contactPhone: "", eligibility: [], targetArea: "指定なし", targetAreaOther: "" });
   const emojis = ["🎉", "🌸", "🎆", "📚", "🚶", "🎵", "🍳", "🌿", "🏃", "🎨", "🤝", "🌈"];
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const validate = () => {
@@ -1232,6 +1234,33 @@ function EventForm({ event, onSave, onClose }) {
           <FormField label="集合場所" required span2><input value={form.meetingPlace} onChange={e => set("meetingPlace", e.target.value)} placeholder="例：市役所前 正面入口" style={inputStyle} /></FormField>
           <FormField label="集合時間" required><input type="time" value={form.meetingTime} onChange={e => set("meetingTime", e.target.value)} style={inputStyle} /></FormField>
           <FormField label="解散予定時間" required><input type="time" value={form.dismissalTime} onChange={e => set("dismissalTime", e.target.value)} style={inputStyle} /></FormField>
+          <SectionHeader icon="🎯" title="参加資格・対象地区" />
+          <div style={{ gridColumn: "span 2" }}>
+            <label style={labelStyle}>参加資格（複数選択可）</label>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {["中学生", "小学生", "大人"].map(e => (
+                <label key={e} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", background: (form.eligibility || []).includes(e) ? "#ede9fe" : "#f8f9ff", border: `2px solid ${(form.eligibility || []).includes(e) ? "#7c3aed" : "#e2e8f0"}`, borderRadius: 10, padding: "8px 16px" }}>
+                  <input type="checkbox" checked={(form.eligibility || []).includes(e)} onChange={() => {
+                    const cur = form.eligibility || [];
+                    set("eligibility", cur.includes(e) ? cur.filter(x => x !== e) : [...cur, e]);
+                  }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: (form.eligibility || []).includes(e) ? "#7c3aed" : "#64748b" }}>{e}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div style={{ gridColumn: "span 2" }}>
+            <label style={labelStyle}>対象地区</label>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+              {["当該地区", "指定なし", "その他"].map(a => (
+                <label key={a} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", background: (form.targetArea || "") === a ? "#e0f2fe" : "#f8f9ff", border: `2px solid ${(form.targetArea || "") === a ? "#0284c7" : "#e2e8f0"}`, borderRadius: 10, padding: "8px 16px" }}>
+                  <input type="radio" name="targetArea" checked={(form.targetArea || "") === a} onChange={() => set("targetArea", a)} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: (form.targetArea || "") === a ? "#0284c7" : "#64748b" }}>{a}</span>
+                </label>
+              ))}
+            </div>
+            {form.targetArea === "その他" && <input value={form.targetAreaOther || ""} onChange={e => set("targetAreaOther", e.target.value)} placeholder="対象地区を入力" style={inputStyle} />}
+          </div>
         </>}
         <SectionHeader icon="👥" title="参加条件" />
         <div style={{ gridColumn: "span 2" }}>
@@ -2176,6 +2205,8 @@ export default function EventNavi() {
                 ...(selectedEvent.type === "volunteer" && selectedEvent.meetingPlace ? [["🗺️ 集合場所", selectedEvent.meetingPlace], ["🕐 集合時間", selectedEvent.meetingTime], ["🕔 解散予定", selectedEvent.dismissalTime]] : []),
                 ...(selectedEvent.contactPerson ? [["🧑‍💼 担当者", selectedEvent.contactPerson]] : []),
                 ...(selectedEvent.contactPhone ? [["📞 担当者連絡先", selectedEvent.contactPhone]] : []),
+                ...(selectedEvent.eligibility?.length ? [["🎯 参加資格", selectedEvent.eligibility.join("・")]] : []),
+                ...(selectedEvent.targetArea && selectedEvent.targetArea !== "指定なし" ? [["🏘️ 対象地区", selectedEvent.targetArea === "その他" ? (selectedEvent.targetAreaOther || "その他") : selectedEvent.targetArea]] : []),
               ].map(([label, val]) => (
                 <div key={label} style={{ background: "#f8f9ff", borderRadius: 10, padding: "10px 13px", borderLeft: "3px solid #667eea" }}>
                   <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 3 }}>{label}</div>
