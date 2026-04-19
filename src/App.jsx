@@ -2121,12 +2121,18 @@ export default function EventNavi() {
                 onViewDetail={ev => { setSelectedEvent(ev); setModalType("detail"); }}
                 onApprove={handleApproveEvent}
                 onRevision={id => { setEvents(prev => prev.map(e => e.id === id ? { ...e, status: "revision" } : e)); showToast("修正依頼を送信しました", "info"); }}
-                onEdit={ev => setPinCheckTarget({ type: "edit", event: ev })}
+                onEdit={ev => { setSelectedEvent(ev); setModalType("edit"); }}
                 onEmergency={ev => { setSelectedEvent(ev); setModalType("emergency"); }}
                 onRoster={ev => setRosterEvent(ev)}
                 onAdminAction={(ev, type) => setAdminActionTarget({ event: ev, type })}
                 onFlyer={ev => generateFlyerPDF(ev)}
-                onCancelApply={(ev, applicantId) => setPinCheckTarget({ type: "cancel", event: ev, applicantId })}
+                onCancelApply={(ev, applicantId) => {
+                  if (confirm(`「${ev.title}」の申込をキャンセルしますか？`)) {
+                    setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, applicants: e.applicants.filter(a => a.id !== applicantId) } : e));
+                    setNotifications(prev => [{ id: Date.now(), message: `「${ev.title}」の申込をキャンセルしました`, time: "たった今", read: false }, ...prev]);
+                    showToast("申込をキャンセルしました", "info");
+                  }
+                }}
                 onDelete={handleDeleteEvent}
               />
             ))}
@@ -2272,25 +2278,7 @@ export default function EventNavi() {
         />
       )}
 
-      {pinCheckTarget?.type === "edit" && (
-        <PinModal
-          icon="✏️"
-          title="編集PINを入力してください"
-          description={`「${pinCheckTarget.event.title}」を編集するには、投稿時に設定したPINが必要です。`}
-          onConfirm={handlePinConfirm}
-          onClose={() => setPinCheckTarget(null)}
-        />
-      )}
-
-      {pinCheckTarget?.type === "cancel" && (
-        <PinModal
-          icon="🗑️"
-          title="申込キャンセルの確認"
-          description="申込時に設定した4桁のPINを入力してください。"
-          onConfirm={handlePinConfirm}
-          onClose={() => setPinCheckTarget(null)}
-        />
-      )}
+      {/* PIN認証廃止 — ログイン認証で本人確認済み */}
     </div>
   );
 }
