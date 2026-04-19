@@ -1448,7 +1448,10 @@ function SignagePage({ events }) {
   const [countdown, setCountdown] = useState(SIGNAGE_DEFAULTS.reloadInterval);
   const now = useCurrentTime();
   const offset = useBurnInOffset(settings.burnInProtection);
-  const activeEvents = events.filter(e => e.status === "approved" && daysUntil(e.date) !== "終了");
+  // サイネージ: 向こう3ヶ月以内の承認済みイベントのみ
+  const signageLimit = new Date(); signageLimit.setMonth(signageLimit.getMonth() + 3);
+  const signageLimitStr = `${signageLimit.getFullYear()}-${String(signageLimit.getMonth()+1).padStart(2,"0")}-${String(signageLimit.getDate()).padStart(2,"0")}`;
+  const activeEvents = events.filter(e => e.status === "approved" && daysUntil(e.date) !== "終了" && (!e.date || e.date <= signageLimitStr));
 
   // リロードカウントダウン
   useEffect(() => {
@@ -1571,11 +1574,16 @@ export default function EventNavi() {
     }
   };
 
+  // 表示対象: 向こう3ヶ月以内のイベントのみ（過去は除外、3ヶ月超は非表示）
+  const threeMonthsLater = new Date(); threeMonthsLater.setMonth(threeMonthsLater.getMonth() + 3);
+  const threeMonthsStr = `${threeMonthsLater.getFullYear()}-${String(threeMonthsLater.getMonth()+1).padStart(2,"0")}-${String(threeMonthsLater.getDate()).padStart(2,"0")}`;
   const filteredEvents = events.filter(ev => {
     const roleOk = currentUser?.role !== "participant" || ev.status === "approved";
     const catOk = filter === "すべて" || ev.type === filter;
     const searchOk = !searchQ || ev.title.includes(searchQ) || ev.description.includes(searchQ);
-    return roleOk && catOk && searchOk;
+    const notExpired = daysUntil(ev.date) !== "終了";
+    const withinRange = !ev.date || ev.date <= threeMonthsStr;
+    return roleOk && catOk && searchOk && notExpired && withinRange;
   });
 
   const handleApply = async (applicant) => {
