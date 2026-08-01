@@ -28,9 +28,13 @@ export default async function handler(req, res) {
     const subjectPrefix = {
       "notice": "【八木中ネット】",
       "event-approved-organizer": "【イベントナビ】",
+      "event-published": "【イベントナビ】",
       "event-revision": "【イベントナビ】",
       "event-rejected": "【イベントナビ】",
       "event-new": "【イベントナビ】",
+      "event-apply-received": "【イベントナビ】",
+      "event-apply-organizer": "【イベントナビ】",
+      "event-changed": "【イベントナビ】",
       "event-emergency": "【イベントナビ】",
       "mimamori": "【見守りナビ】",
     }[type] || "【八木中ネット】";
@@ -88,9 +92,13 @@ function buildHtml(type, title, body, senderName) {
   const appLabel = {
     "notice": "グループウェア",
     "event-approved-organizer": "イベントナビ",
+    "event-published": "イベントナビ",
     "event-revision": "イベントナビ",
     "event-rejected": "イベントナビ",
     "event-new": "イベントナビ",
+    "event-apply-received": "イベントナビ",
+    "event-apply-organizer": "イベントナビ",
+    "event-changed": "イベントナビ",
     "event-emergency": "イベントナビ",
     "mimamori": "見守りナビ",
   }[type] || "八木中ネット";
@@ -98,9 +106,13 @@ function buildHtml(type, title, body, senderName) {
   const accentColor = {
     "notice": "#2563eb",
     "event-approved-organizer": "#16a34a",
+    "event-published": "#16a34a",
     "event-revision": "#d97706",
     "event-rejected": "#dc2626",
     "event-new": "#2563eb",
+    "event-apply-received": "#2563eb",
+    "event-apply-organizer": "#2563eb",
+    "event-changed": "#d97706",
     "event-emergency": "#dc2626",
     "mimamori": "#16a34a",
   }[type] || "#2563eb";
@@ -108,9 +120,13 @@ function buildHtml(type, title, body, senderName) {
   const appUrl = {
     "notice": "https://yagiyama-net.vercel.app",
     "event-approved-organizer": "https://eventnavi.vercel.app",
+    "event-published": "https://eventnavi.vercel.app",
     "event-revision": "https://eventnavi.vercel.app",
     "event-rejected": "https://eventnavi.vercel.app",
     "event-new": "https://eventnavi.vercel.app",
+    "event-apply-received": "https://eventnavi.vercel.app",
+    "event-apply-organizer": "https://eventnavi.vercel.app",
+    "event-changed": "https://eventnavi.vercel.app",
     "event-emergency": "https://eventnavi.vercel.app",
     "mimamori": "https://mimamori-navi.vercel.app",
   }[type] || "https://yagiyama-net.vercel.app";
