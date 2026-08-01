@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "destination": "https://yagiyama-net.vercel.app/$1",
+      "permanent": false
+    }
+  ]
+}

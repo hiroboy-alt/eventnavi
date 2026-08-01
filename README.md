@@ -1,16 +1,50 @@
-# React + Vite
+# イベントナビ（単独版）
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> **⚠️ このリポジトリのアプリは、現在は稼働していません。**
+> `eventnavi.vercel.app` へのアクセスは、すべて八木中ネット（`yagiyama-net.vercel.app`）へ転送されます。
 
-Currently, two official plugins are available:
+## 現在の役割
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+このリポジトリは次の2つの目的で残しています。
 
-## React Compiler
+### 1. 配布済みURL・QRコードの転送
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+主催者や地域の方へ配布したURL、および印刷済みフライヤーのQRコードが
+`https://eventnavi.vercel.app?event=◯◯` を指しているため、リンク切れを防ぐ目的で転送だけを行っています。
 
-## Expanding the ESLint configuration
+転送設定は [`vercel.json`](./vercel.json) の1ファイルのみです。
+`?event=◯◯` などのパラメータは転送先に引き継がれるので、QRコードから該当イベントの詳細を開けます。
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 2. 他地域へ横展開する際のベース
+
+八木山以外の地域から「イベントナビだけ使いたい」という要望があった場合、
+このコードをアレンジして提供することを想定しています。
+
+**横展開する場合は、必ず `src/firebase.js` を新しいFirebaseプロジェクトに差し替えてください。**
+現状は八木山のFirebase（`eventnavi-c4b4e` と `yagiyama-net`）を直接参照しているため、
+そのまま配布すると他地域から八木山のイベントデータ・ユーザー情報が見えてしまいます。
+
+## 八木山中学校PTAでの開発について
+
+**機能追加・修正は、このリポジトリではなく八木中ネット側で行ってください。**
+
+- 修正対象：`yagiyama-net` リポジトリの `src/EventNavi.jsx`
+- 八木中ネットに組み込まれた「組込版」が、実際に利用されている唯一のイベントナビです
+
+このリポジトリのコードは2026年4月19日時点のもので、それ以降の改修
+（アプリ内通知のFirestore化、関連リンク、服装・持ち物、中止・延期のカレンダー表示など）は
+組込版にのみ入っています。ここを直しても本番には反映されません。
+
+## サイネージ表示
+
+デジタルサイネージは組込版で表示できます。
+
+```
+https://yagiyama-net.vercel.app/?mode=signage
+```
+
+ログイン不要で全画面表示されます。
+
+## 技術構成
+
+React 19 + Vite / Firebase Firestore / Resend（メール通知）
